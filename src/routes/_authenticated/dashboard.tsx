@@ -104,7 +104,7 @@ function Dashboard() {
           });
         }
         updates.push(
-          supabase.from("sensors").update(patch).eq("id", s.id).then((r) => r),
+          (async () => supabase.from("sensors").update(patch).eq("id", s.id))(),
         );
       }
 
