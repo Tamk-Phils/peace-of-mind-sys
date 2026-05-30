@@ -14,7 +14,111 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      alert_logs: {
+        Row: {
+          created_at: string
+          id: string
+          sensor_name: string
+          severity: string
+          threshold: number
+          user_id: string
+          value: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          sensor_name: string
+          severity: string
+          threshold: number
+          user_id: string
+          value: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          sensor_name?: string
+          severity?: string
+          threshold?: number
+          user_id?: string
+          value?: number
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          email: string | null
+          id: string
+          name: string | null
+          phone: string | null
+          sms_enabled: boolean
+          twilio_account_sid: string | null
+          twilio_auth_token: string | null
+          twilio_from_number: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          email?: string | null
+          id: string
+          name?: string | null
+          phone?: string | null
+          sms_enabled?: boolean
+          twilio_account_sid?: string | null
+          twilio_auth_token?: string | null
+          twilio_from_number?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          email?: string | null
+          id?: string
+          name?: string | null
+          phone?: string | null
+          sms_enabled?: boolean
+          twilio_account_sid?: string | null
+          twilio_auth_token?: string | null
+          twilio_from_number?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      sensors: {
+        Row: {
+          created_at: string
+          current_value: number
+          enabled: boolean
+          id: string
+          last_triggered: string | null
+          name: string
+          threshold: number
+          unit: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          current_value?: number
+          enabled?: boolean
+          id?: string
+          last_triggered?: string | null
+          name: string
+          threshold: number
+          unit: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          current_value?: number
+          enabled?: boolean
+          id?: string
+          last_triggered?: string | null
+          name?: string
+          threshold?: number
+          unit?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
