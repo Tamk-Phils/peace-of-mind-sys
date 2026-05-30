@@ -93,7 +93,7 @@ function Dashboard() {
         const value = simulateReading(s.name, Number(s.threshold));
         point[s.name] = value;
         const sev = severityFor(value, Number(s.threshold));
-        const patch: Record<string, unknown> = { current_value: value };
+        const patch: { current_value: number; last_triggered?: string } = { current_value: value };
         if (sev !== "SAFE") {
           patch.last_triggered = now.toISOString();
           alertsToInsert.push({
@@ -103,7 +103,9 @@ function Dashboard() {
             severity: sev,
           });
         }
-        updates.push(supabase.from("sensors").update(patch).eq("id", s.id));
+        updates.push(
+          supabase.from("sensors").update(patch).eq("id", s.id).then((r) => r),
+        );
       }
 
       await Promise.all(updates);
