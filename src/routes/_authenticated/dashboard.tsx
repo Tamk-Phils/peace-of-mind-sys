@@ -73,79 +73,98 @@ function Dashboard() {
   const [history, setHistory] = useState<Array<Record<string, number | string>>>([]);
   const sensorsRef = useRef<Sensor[] | undefined>(undefined);
   sensorsRef.current = sensorsQuery.data;
+  const sendSmsRef = useRef(sendSmsFn);
+  sendSmsRef.current = sendSmsFn;
+  // Throttle SMS per sensor: at most one every 60s.
+  const lastSmsAtRef = useRef<Record<string, number>>({});
+
+  const hasSensors = (sensorsQuery.data?.length ?? 0) > 0;
 
   useEffect(() => {
-    if (!sensorsQuery.data || sensorsQuery.data.length === 0) return;
+    if (!hasSensors) return;
 
     const tick = async () => {
-      const sensors = sensorsRef.current;
-      if (!sensors) return;
-      const now = new Date();
-      const point: Record<string, number | string> = { t: now.toLocaleTimeString() };
-      const updates: Array<Promise<unknown>> = [];
-      const alertsToInsert: Array<Omit<AlertRow, "id" | "created_at">> = [];
+      try {
+        const sensors = sensorsRef.current;
+        if (!sensors) return;
+        const now = new Date();
+        const point: Record<string, number | string> = { t: now.toLocaleTimeString() };
+        const updates: Array<Promise<unknown>> = [];
+        const alertsToInsert: Array<Omit<AlertRow, "id" | "created_at">> = [];
 
-      for (const s of sensors) {
-        if (!s.enabled) {
-          point[s.name] = 0;
-          continue;
-        }
-        const value = simulateReading(s.name, Number(s.threshold));
-        point[s.name] = value;
-        const sev = severityFor(value, Number(s.threshold));
-        const patch: { current_value: number; last_triggered?: string } = { current_value: value };
-        if (sev !== "SAFE") {
-          patch.last_triggered = now.toISOString();
-          alertsToInsert.push({
-            sensor_name: s.name,
-            value,
-            threshold: Number(s.threshold),
-            severity: sev,
-          });
-        }
-        updates.push(
-          (async () => supabase.from("sensors").update(patch).eq("id", s.id))(),
-        );
-      }
-
-      await Promise.all(updates);
-
-      if (alertsToInsert.length > 0) {
-        const { data: userData } = await supabase.auth.getUser();
-        const uid = userData.user?.id;
-        if (uid) {
-          const rows = alertsToInsert.map((a) => ({ ...a, user_id: uid }));
-          await supabase.from("alert_logs").insert(rows);
-          qc.invalidateQueries({ queryKey: ["recent-alerts"] });
-          qc.invalidateQueries({ queryKey: ["alerts"] });
-
-          for (const a of alertsToInsert) {
-            toast.error(`${a.sensor_name}: ${a.value} exceeded ${a.threshold}`, {
-              description: `Severity: ${a.severity}`,
+        for (const s of sensors) {
+          if (!s.enabled) {
+            point[s.name] = 0;
+            continue;
+          }
+          const value = simulateReading(s.name, Number(s.threshold));
+          point[s.name] = value;
+          const sev = severityFor(value, Number(s.threshold));
+          const patch: { current_value: number; last_triggered?: string } = { current_value: value };
+          if (sev !== "SAFE") {
+            patch.last_triggered = now.toISOString();
+            alertsToInsert.push({
+              sensor_name: s.name,
+              value,
+              threshold: Number(s.threshold),
+              severity: sev,
             });
-            sendSmsFn({
-              data: {
-                message: `⚠️ SecureWatch Alert: ${a.sensor_name} reading of ${a.value} exceeded threshold of ${a.threshold}. Time: ${now.toISOString()}`,
-              },
-            }).catch(() => {});
+          }
+          updates.push(
+            Promise.resolve(supabase.from("sensors").update(patch).eq("id", s.id)).catch(() => undefined),
+          );
+        }
+
+        await Promise.all(updates);
+
+        if (alertsToInsert.length > 0) {
+          const { data: userData } = await supabase.auth.getUser().catch(() => ({ data: { user: null } }));
+          const uid = userData.user?.id;
+          if (uid) {
+            const rows = alertsToInsert.map((a) => ({ ...a, user_id: uid }));
+            await supabase.from("alert_logs").insert(rows).then(
+              () => undefined,
+              () => undefined,
+            );
+            qc.invalidateQueries({ queryKey: ["recent-alerts"] });
+            qc.invalidateQueries({ queryKey: ["alerts"] });
+
+            const nowMs = Date.now();
+            for (const a of alertsToInsert) {
+              toast.error(`${a.sensor_name}: ${a.value} exceeded ${a.threshold}`, {
+                description: `Severity: ${a.severity}`,
+              });
+              const last = lastSmsAtRef.current[a.sensor_name] ?? 0;
+              if (a.severity === "DANGER" && nowMs - last > 60_000) {
+                lastSmsAtRef.current[a.sensor_name] = nowMs;
+                sendSmsRef.current({
+                  data: {
+                    message: `⚠️ SecureWatch Alert: ${a.sensor_name} reading of ${a.value} exceeded threshold of ${a.threshold}.`,
+                  },
+                }).catch(() => {});
+              }
+            }
           }
         }
+
+        qc.setQueryData<Sensor[]>(["sensors"], (prev) =>
+          prev?.map((s) => ({ ...s, current_value: Number(point[s.name] ?? s.current_value) })),
+        );
+
+        setHistory((h) => {
+          const next = [...h, point];
+          return next.slice(-20);
+        });
+      } catch (err) {
+        // Swallow transient errors so the interval keeps running.
+        console.warn("Sensor tick failed:", err);
       }
-
-      qc.setQueryData<Sensor[]>(["sensors"], (prev) =>
-        prev?.map((s) => ({ ...s, current_value: Number(point[s.name] ?? s.current_value) })),
-      );
-
-      setHistory((h) => {
-        const next = [...h, point];
-        return next.slice(-20);
-      });
     };
 
     tick();
     const id = setInterval(tick, 3000);
     return () => clearInterval(id);
-  }, [sensorsQuery.data?.length, qc, sendSmsFn]);
+  }, [hasSensors, qc]);
 
   const sensors = sensorsQuery.data ?? [];
 
