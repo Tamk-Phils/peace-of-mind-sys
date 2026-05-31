@@ -111,10 +111,7 @@ function Dashboard() {
             });
           }
           updates.push(
-            supabase.from("sensors").update(patch).eq("id", s.id).then(
-              () => undefined,
-              () => undefined,
-            ),
+            Promise.resolve(supabase.from("sensors").update(patch).eq("id", s.id)).catch(() => undefined),
           );
         }
 
