@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { simulateReading, severityFor } from "@/lib/sensor-sim";
+import { simulateReadingWithParams, severityForParams, resolveParams, severityFor } from "@/lib/sensor-sim";
 import { useServerFn } from "@tanstack/react-start";
 import { sendSms } from "@/lib/sms.functions";
 import { Card } from "@/components/ui/card";
@@ -97,9 +97,10 @@ function Dashboard() {
             point[s.name] = 0;
             continue;
           }
-          const value = simulateReading(s.name, Number(s.threshold));
+          const params = resolveParams(s as unknown as Parameters<typeof resolveParams>[0]);
+          const value = simulateReadingWithParams(params);
           point[s.name] = value;
-          const sev = severityFor(value, Number(s.threshold));
+          const sev = severityForParams(value, params);
           const patch: { current_value: number; last_triggered?: string } = { current_value: value };
           if (sev !== "SAFE") {
             patch.last_triggered = now.toISOString();
@@ -108,7 +109,8 @@ function Dashboard() {
               value,
               threshold: Number(s.threshold),
               severity: sev,
-            });
+              unit: s.unit,
+            } as Omit<AlertRow, "id" | "created_at"> & { unit: string });
           }
           updates.push(
             Promise.resolve(supabase.from("sensors").update(patch).eq("id", s.id)).catch(() => undefined),
@@ -121,7 +123,10 @@ function Dashboard() {
           const { data: userData } = await supabase.auth.getUser().catch(() => ({ data: { user: null } }));
           const uid = userData.user?.id;
           if (uid) {
-            const rows = alertsToInsert.map((a) => ({ ...a, user_id: uid }));
+            const rows = alertsToInsert.map((a) => {
+              const { unit: _u, ...rest } = a as typeof a & { unit?: string };
+              return { ...rest, user_id: uid, sms_sent: false };
+            });
             await supabase.from("alert_logs").insert(rows).then(
               () => undefined,
               () => undefined,
@@ -130,16 +135,18 @@ function Dashboard() {
             qc.invalidateQueries({ queryKey: ["alerts"] });
 
             const nowMs = Date.now();
-            for (const a of alertsToInsert) {
+            for (const a of alertsToInsert as Array<typeof alertsToInsert[number] & { unit?: string }>) {
               toast.error(`${a.sensor_name}: ${a.value} exceeded ${a.threshold}`, {
                 description: `Severity: ${a.severity}`,
               });
               const last = lastSmsAtRef.current[a.sensor_name] ?? 0;
               if (a.severity === "DANGER" && nowMs - last > 60_000) {
                 lastSmsAtRef.current[a.sensor_name] = nowMs;
+                const unit = a.unit ?? "";
+                const ts = new Date().toISOString();
                 sendSmsRef.current({
                   data: {
-                    message: `⚠️ SecureWatch Alert: ${a.sensor_name} reading of ${a.value} exceeded threshold of ${a.threshold}.`,
+                    message: `⚠ SecureWatch Alert: ${a.sensor_name} reading of ${a.value} ${unit} exceeded threshold of ${a.threshold} ${unit}. Severity: ${a.severity}. Time: ${ts}.`,
                   },
                 }).catch(() => {});
               }
