@@ -127,7 +127,7 @@ function Dashboard() {
               const { unit: _u, ...rest } = a as typeof a & { unit?: string };
               return { ...rest, user_id: uid, sms_sent: false };
             });
-            await supabase.from("alert_logs").insert(rows).then(
+            await (supabase.from("alert_logs").insert(rows as never) as unknown as Promise<unknown>).then(
               () => undefined,
               () => undefined,
             );
